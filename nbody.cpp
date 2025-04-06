@@ -12,7 +12,6 @@ const double RLIMIT = 0.03;    // Minimum distance to avoid infinite forces
 const double DOMAIN_MIN = 0.0;
 const double DOMAIN_MAX = 4.0;
 
-// Structure to represent a body in the simulation
 struct Body {
     int index;
     double x, y;       // Position
@@ -21,12 +20,9 @@ struct Body {
     double fx, fy;     // Force
 };
 
+
 // Function prototypes
 std::vector<Body> readBodiesFromFile(const std::string& filename);
-void writeBodiestoFile(const std::string& filename, const std::vector<Body>& bodies);
-void computeForces(std::vector<Body>& bodies, int startIdx, int endIdx, double theta);
-void updateBodies(std::vector<Body>& bodies, double dt, int startIdx, int endIdx);
-
 // Parse command line arguments
 bool parseArguments(int argc, char* argv[], std::string& inputFile, std::string& outputFile, 
                    int& steps, double& theta, double& dt, bool& visualization) {
@@ -108,7 +104,7 @@ int main(int argc, char* argv[]) {
     }
     
     // Start timing
-    double startTime = MPI_Wtime();
+    // double startTime = MPI_Wtime();
     
     // Read input file (only rank 0 needs to do this initially)
     std::vector<Body> bodies;
@@ -118,29 +114,10 @@ int main(int argc, char* argv[]) {
             std::cout << "Read " << bodies.size() << " bodies from " << inputFile << std::endl;
         }
     }
-    
 
 
-    // Main simulation loop
-    for (int step = 0; step < steps; step++) {
-    }
     
-    // Write output file (only rank 0 needs to do this)
-    if (rank == 0) {
-        writeBodiestoFile(outputFile, bodies);
-        std::cout << "Wrote " << bodies.size() << " bodies to " << outputFile << std::endl;
-    }
-    
-    // End timing and print elapsed time
-    double endTime = MPI_Wtime();
-    if (rank == 0) {
-        std::cout << "Simulation completed in " << endTime - startTime << " seconds" << std::endl;
-    }
-    
-    // Free MPI datatype
-    // MPI_Type_free(&bodyType);
-    
-    // Finalize MPI
+
     MPI_Finalize();
     return 0;
 }
@@ -148,21 +125,33 @@ int main(int argc, char* argv[]) {
 // Read bodies from input file
 std::vector<Body> readBodiesFromFile(const std::string& filename) {
     std::vector<Body> bodies;
-    // Implementation would go here
+    std::ifstream file(filename);
+    
+    if (!file.is_open()) {
+        std::cerr << "Error: Could not open file " << filename << std::endl;
+        return bodies;
+    }
+    
+    // Read number of bodies
+    int numBodies;
+    file >> numBodies;
+    
+    // Reserve space to avoid reallocations
+    bodies.reserve(numBodies);
+    
+    // Read each body
+    for (int i = 0; i < numBodies; i++) {
+        Body body;
+        file >> body.index >> body.x >> body.y >> body.mass >> body.vx >> body.vy;
+        
+        // Initialize forces to zero
+        body.fx = 0.0;
+        body.fy = 0.0;
+        
+        bodies.push_back(body);
+    }
+    
+    file.close();
     return bodies;
 }
 
-// Write bodies to output file
-void writeBodiestoFile(const std::string& filename, const std::vector<Body>& bodies) {
-    return;
-}
-
-// Calculate forces between bodies (naive implementation - replace with Barnes-Hut)
-void computeForces(std::vector<Body>& bodies, int startIdx, int endIdx, double theta) {
-    return;
-}
-
-// Update positions and velocities using Leapfrog-Verlet integration
-void updateBodies(std::vector<Body>& bodies, double dt, int startIdx, int endIdx) {
-    return;
-}
