@@ -14,7 +14,7 @@ const double DOMAIN_MAX = 4.0;
 
 struct Body {
     int index;
-    double x, y;       // Position
+    double px, py;       // Position
     double mass;
     double vx, vy;     // Velocity
     double fx, fy;     // Force
@@ -80,7 +80,7 @@ int main(int argc, char* argv[]) {
     // Parse command line arguments
     std::string inputFile, outputFile;
     int steps;
-    double theta, dt;
+    double theta, dt; // try dt: 0.005
     bool visualization;
     
     if (!parseArguments(argc, argv, inputFile, outputFile, steps, theta, dt, visualization)) {
@@ -103,8 +103,6 @@ int main(int argc, char* argv[]) {
         std::cout << "  Visualization: " << (visualization ? "On" : "Off") << std::endl;
     }
     
-    // Start timing
-    // double startTime = MPI_Wtime();
     
     // Read input file (only rank 0 needs to do this initially)
     std::vector<Body> bodies;
@@ -115,8 +113,12 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // initialize the Barnes Hut tree
 
-    
+    for (int i = 0; i < steps; i++){
+        // main simulation loop
+        
+    }
 
     MPI_Finalize();
     return 0;
