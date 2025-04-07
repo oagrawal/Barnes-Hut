@@ -29,6 +29,8 @@ struct Node {
 
 // Function prototypes
 std::vector<Body> readBodiesFromFile(const std::string& filename);
+Node* constructTreeHelper(Node* root, const Body& b, double minx, double maxx, double miny, double maxy);
+
 // Parse command line arguments
 bool parseArguments(int argc, char* argv[], std::string& inputFile, std::string& outputFile, 
                    int& steps, double& theta, double& dt, bool& visualization) {
@@ -147,16 +149,38 @@ Node* constructTreeHelper(Node* root, const Body& b, double minx, double maxx, d
         root = insertCorrect(root, b2);
         
         // Update center of mass and total mass
-        root->b.px = ((root->b.px * root->b.mass) + (b.mass * b.px)) / (root->b.mass + b.mass);
-        root->b.py = ((root->b.py * root->b.mass) + (b.mass * b.py)) / (root->b.mass + b.mass);
-        root->b.mass += b.mass;
+        double totalMass = root->b.mass + b.mass;
+        if (totalMass > 0) {  // Prevent division by zero
+            // Use a more stable formula for weighted average to avoid overflow
+            double w1 = root->b.mass / totalMass;
+            double w2 = b.mass / totalMass;
+            root->b.px = w1 * root->b.px + w2 * b.px;
+            root->b.py = w1 * root->b.py + w2 * b.py;
+            root->b.mass = totalMass;
+        } else {
+            // If both masses are zero, just use the position of the new body
+            root->b.px = b.px;
+            root->b.py = b.py;
+            root->b.mass = 0;
+        }
     } 
     // If this is an internal node
     else {
         // Update center of mass and total mass
-        root->b.px = ((root->b.px * root->b.mass) + (b.mass * b.px)) / (root->b.mass + b.mass);
-        root->b.py = ((root->b.py * root->b.mass) + (b.mass * b.py)) / (root->b.mass + b.mass);
-        root->b.mass += b.mass;
+        double totalMass = root->b.mass + b.mass;
+        if (totalMass > 0) {  // Prevent division by zero
+            // Use a more stable formula for weighted average to avoid overflow
+            double w1 = root->b.mass / totalMass;
+            double w2 = b.mass / totalMass;
+            root->b.px = w1 * root->b.px + w2 * b.px;
+            root->b.py = w1 * root->b.py + w2 * b.py;
+            root->b.mass = totalMass;
+        } else {
+            // If both masses are zero, just use the position of the new body
+            root->b.px = b.px;
+            root->b.py = b.py;
+            root->b.mass = 0;
+        }
         
         // Insert the new body
         root = insertCorrect(root, b);
@@ -184,6 +208,41 @@ void destroyTree(Node* root) {
     
     // Free this node
     delete root;
+}
+
+// Function to print the tree structure for debugging
+void printTree(Node* root, int level = 0, const std::string& prefix = "") {
+    if (root == nullptr) {
+        std::cout << prefix << "└── [empty]" << std::endl;
+        return;
+    }
+    
+    // Print current node
+    std::cout << prefix;
+    if (level == 0) {
+        std::cout << "Root: ";
+    } else {
+        std::cout << "└── ";
+    }
+    
+    if (root->b.index == -1) {
+        std::cout << "Internal Node (mass=" << root->b.mass 
+                  << ", pos=(" << root->b.px << "," << root->b.py << ")"
+                  << ", bounds=[" << root->minx << "," << root->maxx << "][" 
+                  << root->miny << "," << root->maxy << "])" << std::endl;
+    } else {
+        std::cout << "Body " << root->b.index 
+                  << " (mass=" << root->b.mass 
+                  << ", pos=(" << root->b.px << "," << root->b.py << ")"
+                  << ", vel=(" << root->b.vx << "," << root->b.vy << "))" << std::endl;
+    }
+    
+    // Print children with increased indentation
+    std::string newPrefix = prefix + "    ";
+    printTree(root->NW, level + 1, newPrefix + "NW: ");
+    printTree(root->NE, level + 1, newPrefix + "NE: ");
+    printTree(root->SW, level + 1, newPrefix + "SW: ");
+    printTree(root->SE, level + 1, newPrefix + "SE: ");
 }
 
 int main(int argc, char* argv[]) {
@@ -227,8 +286,15 @@ int main(int argc, char* argv[]) {
         std::cout << "Read " << bodies.size() << " bodies from " << inputFile << std::endl;
     }
 
-    // Initialize the Barnes-Hut tree
-    Node* root = constructTree(bodies);
+    Node* root;
+    // Print the tree structure for debugging (only from rank 0)
+    if (rank == 0) {
+        // Initialize the Barnes-Hut tree
+        root = constructTree(bodies);
+        std::cout << "\nBarnes-Hut Tree Structure:" << std::endl;
+        printTree(root);
+        std::cout << std::endl;
+    }
 
     for (int i = 0; i < steps; i++){
         // main simulation loop
@@ -268,7 +334,7 @@ std::vector<Body> readBodiesFromFile(const std::string& filename) {
     // Read each body
     for (int i = 0; i < numBodies; i++) {
         Body body;
-        file >> body.index >> body.x >> body.y >> body.mass >> body.vx >> body.vy;
+        file >> body.index >> body.px >> body.py >> body.mass >> body.vx >> body.vy;
         
         // Initialize forces to zero
         body.fx = 0.0;
