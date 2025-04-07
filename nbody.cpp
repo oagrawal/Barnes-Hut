@@ -13,11 +13,17 @@ const double DOMAIN_MIN = 0.0;
 const double DOMAIN_MAX = 4.0;
 
 struct Body {
-    int index;
-    double px, py;       // Position
-    double mass;
-    double vx, vy;     // Velocity
-    double fx, fy;     // Force
+    int index;          // -1 for internal, correct for external nodes
+    double px, py;      // Position
+    double mass;        // -1 if out of bounds
+    double vx, vy;      // Velocity
+    double fx, fy;      // Force
+};
+
+struct Node {
+    struct Body b;      // can represent internal / external nodes
+    struct Node *NW, *NE, *SW, *SE;
+    double minx, maxx, miny, maxy;
 };
 
 
@@ -69,6 +75,117 @@ bool parseArguments(int argc, char* argv[], std::string& inputFile, std::string&
     return true;
 }
 
+
+Node* insertCorrect(Node* root, const Body& b) {
+    if(!root) return nullptr;
+    
+    double midx = (root->maxx + root->minx) / 2;
+    double midy = (root->maxy + root->miny) / 2;
+    
+    if(b.px <= midx && b.py > midy) {
+        root->NW = constructTreeHelper(root->NW, b, root->minx, midx, midy, root->maxy);
+    } else if(b.px > midx && b.py > midy) {
+        root->NE = constructTreeHelper(root->NE, b, midx, root->maxx, midy, root->maxy);
+    } else if(b.px <= midx && b.py <= midy) {
+        root->SW = constructTreeHelper(root->SW, b, root->minx, midx, root->miny, midy);
+    } else if(b.px > midx && b.py <= midy) {
+        root->SE = constructTreeHelper(root->SE, b, midx, root->maxx, root->miny, midy);
+    }
+    return root;
+}
+
+/*
+
+Constructing the Barnes-Hut tree. To construct the Barnes-Hut tree, 
+insert the bodies one after another. To insert a body b into the tree 
+rooted at node x, use the following recursive procedure:
+
+If node x does not contain a body, put the new body b here.
+
+If node x is an internal node, update the center-of-mass and total mass of x. 
+Recursively insert the body b in the appropriate quadrant.
+
+If node x is an external node, say containing a body named c, then there are 
+two bodies b and c in the same region. Subdivide the region further by creating 
+four children. Then, recursively insert both b and c into the appropriate 
+quadrant(s). Since b and c may still end up in the same quadrant, there may 
+be several subdivisions during a single insertion. Finally, update the 
+center-of-mass and total mass of x.
+
+*/
+Node* constructTreeHelper(Node* root, const Body& b, double minx, double maxx, double miny, double maxy) {
+    if(root == nullptr) {
+        // Allocate new node with 'new'
+        root = new Node();
+        root->NW = nullptr;
+        root->NE = nullptr;
+        root->SW = nullptr;
+        root->SE = nullptr;
+        root->minx = minx;
+        root->maxx = maxx;
+        root->miny = miny;
+        root->maxy = maxy;
+        root->b = b;
+        return root;
+    }
+    
+    // If this is an empty node, just put the body here
+    if(root->b.mass == 0) {
+        root->b = b;
+    } 
+    // If this is an external node (leaf with a single body)
+    else if(root->NW == nullptr && root->NE == nullptr && 
+            root->SW == nullptr && root->SE == nullptr) {
+        // Store existing body
+        Body b2 = root->b;
+        
+        // Mark as internal node
+        root->b.index = -1;
+        
+        // Insert both bodies
+        root = insertCorrect(root, b);
+        root = insertCorrect(root, b2);
+        
+        // Update center of mass and total mass
+        root->b.px = ((root->b.px * root->b.mass) + (b.mass * b.px)) / (root->b.mass + b.mass);
+        root->b.py = ((root->b.py * root->b.mass) + (b.mass * b.py)) / (root->b.mass + b.mass);
+        root->b.mass += b.mass;
+    } 
+    // If this is an internal node
+    else {
+        // Update center of mass and total mass
+        root->b.px = ((root->b.px * root->b.mass) + (b.mass * b.px)) / (root->b.mass + b.mass);
+        root->b.py = ((root->b.py * root->b.mass) + (b.mass * b.py)) / (root->b.mass + b.mass);
+        root->b.mass += b.mass;
+        
+        // Insert the new body
+        root = insertCorrect(root, b);
+    }
+    return root;
+}
+
+Node* constructTree(const std::vector<Body>& bodies) {
+    Node* root = nullptr;
+    
+    for(size_t i = 0; i < bodies.size(); i++) {
+        root = constructTreeHelper(root, bodies[i], DOMAIN_MIN, DOMAIN_MAX, DOMAIN_MIN, DOMAIN_MAX);
+    }
+    return root;
+}
+
+void destroyTree(Node* root) {
+    if(root == nullptr) return;
+    
+    // Recursively destroy all children
+    destroyTree(root->NW);
+    destroyTree(root->NE);
+    destroyTree(root->SW);
+    destroyTree(root->SE);
+    
+    // Free this node
+    delete root;
+}
+
 int main(int argc, char* argv[]) {
     // Initialize MPI environment
     MPI_Init(&argc, &argv);
@@ -80,7 +197,7 @@ int main(int argc, char* argv[]) {
     // Parse command line arguments
     std::string inputFile, outputFile;
     int steps;
-    double theta, dt; // try dt: 0.005
+    double theta, dt;
     bool visualization;
     
     if (!parseArguments(argc, argv, inputFile, outputFile, steps, theta, dt, visualization)) {
@@ -103,26 +220,33 @@ int main(int argc, char* argv[]) {
         std::cout << "  Visualization: " << (visualization ? "On" : "Off") << std::endl;
     }
     
-    
-    // Read input file (only rank 0 needs to do this initially)
+    // Read input file
     std::vector<Body> bodies;
     if (rank == 0) {
         bodies = readBodiesFromFile(inputFile);
-        if (rank == 0) {
-            std::cout << "Read " << bodies.size() << " bodies from " << inputFile << std::endl;
-        }
+        std::cout << "Read " << bodies.size() << " bodies from " << inputFile << std::endl;
     }
 
-    // initialize the Barnes Hut tree
+    // Initialize the Barnes-Hut tree
+    Node* root = constructTree(bodies);
 
     for (int i = 0; i < steps; i++){
         // main simulation loop
+        // For each new step, you would destroy the old tree and create a new one
+        // after the bodies have moved
         
+        // If you need to rebuild the tree each step:
+        // destroyTree(root);
+        // root = constructTree(bodies);
     }
 
+    // Clean up by freeing all allocated memory
+    destroyTree(root);
+    
     MPI_Finalize();
     return 0;
 }
+
 
 // Read bodies from input file
 std::vector<Body> readBodiesFromFile(const std::string& filename) {
