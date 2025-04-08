@@ -117,6 +117,11 @@ center-of-mass and total mass of x.
 
 */
 Node* constructTreeHelper(Node* root, const Body& b, double minx, double maxx, double miny, double maxy) {
+    // Skip lost particles
+    if (b.mass == -1) {
+        return root;
+    }
+    
     if(root == nullptr) {
         // Allocate new node with 'new'
         root = new Node();
@@ -249,6 +254,132 @@ void printTree(Node* root, int level = 0, const std::string& prefix = "") {
     printTree(root->SE, level + 1, newPrefix + "SE: ");
 }
 
+/*
+1) If the current node is an external node (and it is not body b), 
+calculate the force exerted by the current node on b, and add this amount to b's net force.
+
+2) Otherwise, calculate the ratio s / d. If s / d < θ, treat this internal node as a single body, 
+and calculate the force it exerts on body b, and add this amount to b's net force.
+
+3) Otherwise, run the procedure recursively on each of the current node's children.
+
+*/
+void calcForce(Body* b, Node* root, double theta) {
+    if (root == nullptr) {
+        return;
+    }
+    
+    // Skip calculation if this is the same body or if either body is lost
+    if ((root->b->index == b->index && root->b->index != -1) || 
+        b->mass == -1 || root->b->mass == -1) {
+        return;
+    }
+    
+    // Calculate distance vector (preserving direction)
+    double dx = root->b->px - b->px;
+    double dy = root->b->py - b->py;
+    double d = sqrt(dx*dx + dy*dy);
+    
+    // Check if node is external (leaf node)
+    if (root->b->index != -1) {
+        // External node (and not the body itself)
+        if (d < RLIMIT) {
+            d = RLIMIT;  // Prevent division by zero/very small numbers
+        }
+        
+        // Calculate gravitational force with correct direction
+        double F = G * b->mass * root->b->mass / (d*d + RLIMIT*RLIMIT);
+        
+        b->fx += F * dx / d;
+        b->fy += F * dy / d;
+        return;
+    } else {
+        // Internal node - check if it's far enough away
+        double s = root->maxx - root->minx;  // Size of region
+        
+        if ((s / d) < theta) {
+            // Far enough away, treat as single body
+            if (d < RLIMIT) {
+                d = RLIMIT;
+            }
+            
+            double F = G * b->mass * root->b->mass / (d*d + RLIMIT*RLIMIT);
+            b->fx += F * dx / d;
+            b->fy += F * dy / d;
+            return;
+        } else {
+            // Too close, recursively check children
+            calcForce(b, root->NW, theta);
+            calcForce(b, root->NE, theta);
+            calcForce(b, root->SW, theta);
+            calcForce(b, root->SE, theta);
+        }
+    }
+}
+
+void calculateForcesParallel(Node* root, std::vector<Body>& bodies, double theta, int rank, int size) {
+    // Reset forces for all bodies
+    for (auto& body : bodies) {
+        body.fx = 0.0;
+        body.fy = 0.0;
+    }
+    
+    // Each rank calculates forces for its assigned subset of bodies (round-robin)
+    for (size_t i = rank; i < bodies.size(); i += size) {
+        // Skip lost particles
+        if (bodies[i].mass == -1) {
+            continue;
+        }
+        calcForce(&bodies[i], root, theta);
+    }
+    
+    // Create arrays for force aggregation
+    std::vector<double> local_fx(bodies.size(), 0.0);
+    std::vector<double> local_fy(bodies.size(), 0.0);
+    std::vector<double> global_fx(bodies.size(), 0.0);
+    std::vector<double> global_fy(bodies.size(), 0.0);
+    
+    // Copy local results to the arrays
+    for (size_t i = rank; i < bodies.size(); i += size) {
+        local_fx[i] = bodies[i].fx;
+        local_fy[i] = bodies[i].fy;
+    }
+    
+    // Combine results from all processes
+    MPI_Allreduce(local_fx.data(), global_fx.data(), bodies.size(), MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(local_fy.data(), global_fy.data(), bodies.size(), MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    
+    // Update bodies with the combined forces
+    for (size_t i = 0; i < bodies.size(); i++) {
+        bodies[i].fx = global_fx[i];
+        bodies[i].fy = global_fy[i];
+    }
+}
+
+
+void updateBodies(std::vector<Body>& bodies, double dt){
+    double ax, ay;
+    for (auto& body : bodies) {
+        if (body.mass == 0 || body.mass == -1) {
+            // Skip bodies with zero mass or lost particles
+            continue;
+        }
+        ax = body.fx / body.mass;
+        ay = body.fy / body.mass;  
+        body.vx = body.vx + ax*dt;
+        body.vy = body.vy + ay*dt;
+        body.px = body.px + body.vx*dt + 0.5*ax*(dt*dt);
+        body.py = body.py + body.vy*dt + 0.5*ay*(dt*dt);
+        
+        // Check if particle is outside the domain
+        if (body.px < DOMAIN_MIN || body.px > DOMAIN_MAX || 
+            body.py < DOMAIN_MIN || body.py > DOMAIN_MAX) {
+            // Mark as lost particle
+            body.mass = -1;
+        }
+    }
+}
+
 int main(int argc, char* argv[]) {
     // Initialize MPI environment
     MPI_Init(&argc, &argv);
@@ -306,8 +437,16 @@ int main(int argc, char* argv[]) {
     for (int step = 0; step < steps; step++) {
         // TODO: Calculate forces on each body
         // TODO: Update positions and velocities
+
+        // Calculate forces in parallel
+        calculateForcesParallel(root, bodies, theta, rank, size);
+        
+        // Update positions and velocities
+        updateBodies(bodies, dt);
+
         
         // Rebuild the tree for the next step
+        MPI_Barrier(MPI_COMM_WORLD);
         destroyTree(root);
         root = constructTree(bodies);
     }
