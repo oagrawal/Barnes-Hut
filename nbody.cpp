@@ -41,7 +41,6 @@ bool parseArguments(int argc, char* argv[], std::string& inputFile, std::string&
     theta = 0.5;  // Common default for Barnes-Hut
     dt = 0.005;
     visualization = false;
-    
     int opt;
     while ((opt = getopt(argc, argv, "i:o:s:t:d:V")) != -1) {
         switch (opt) {
@@ -96,25 +95,6 @@ Node* insertCorrect(Node* root, const Body& b) {
     return root;
 }
 
-/*
-
-Constructing the Barnes-Hut tree. To construct the Barnes-Hut tree, 
-insert the bodies one after another. To insert a body b into the tree 
-rooted at node x, use the following recursive procedure:
-
-If node x does not contain a body, put the new body b here.
-
-If node x is an internal node, update the center-of-mass and total mass of x. 
-Recursively insert the body b in the appropriate quadrant.
-
-If node x is an external node, say containing a body named c, then there are 
-two bodies b and c in the same region. Subdivide the region further by creating 
-four children. Then, recursively insert both b and c into the appropriate 
-quadrant(s). Since b and c may still end up in the same quadrant, there may 
-be several subdivisions during a single insertion. Finally, update the 
-center-of-mass and total mass of x.
-
-*/
 Node* constructTreeHelper(Node* root, const Body& b, double minx, double maxx, double miny, double maxy) {
     // Skip lost particles
     if (b.mass == -1) {
@@ -161,6 +141,10 @@ Node* constructTreeHelper(Node* root, const Body& b, double minx, double maxx, d
             double w2 = b.mass / totalMass;
             root->b->px = w1 * root->b->px + w2 * b.px;
             root->b->py = w1 * root->b->py + w2 * b.py;
+
+            // root->b->px = ((root->b->px*root->b->mass) + (b.px*b.mass)) / (b.mass + root->b->mass);
+            // root->b->py = ((root->b->py*root->b->mass) + (b.py*b.mass)) / (b.mass + root->b->mass);
+
             root->b->mass = totalMass;
         } else {
             // If both masses are zero, just use the position of the new body
@@ -179,6 +163,9 @@ Node* constructTreeHelper(Node* root, const Body& b, double minx, double maxx, d
             double w2 = b.mass / totalMass;
             root->b->px = w1 * root->b->px + w2 * b.px;
             root->b->py = w1 * root->b->py + w2 * b.py;
+            // root->b->px = ((root->b->px*root->b->mass) + (b.px*b.mass)) / (b.mass + root->b->mass);
+            // root->b->py = ((root->b->py*root->b->mass) + (b.py*b.mass)) / (b.mass + root->b->mass);
+
             root->b->mass = totalMass;
         } else {
             // If both masses are zero, just use the position of the new body
@@ -218,7 +205,6 @@ void destroyTree(Node* root) {
     delete root;
 }
 
-// Function to print the tree structure for debugging
 void printTree(Node* root, int level = 0, const std::string& prefix = "") {
     if (root == nullptr) {
         std::cout << prefix << "└── [empty]" << std::endl;
@@ -253,16 +239,6 @@ void printTree(Node* root, int level = 0, const std::string& prefix = "") {
     printTree(root->SE, level + 1, newPrefix + "SE: ");
 }
 
-/*
-1) If the current node is an external node (and it is not body b), 
-calculate the force exerted by the current node on b, and add this amount to b's net force.
-
-2) Otherwise, calculate the ratio s / d. If s / d < θ, treat this internal node as a single body, 
-and calculate the force it exerts on body b, and add this amount to b's net force.
-
-3) Otherwise, run the procedure recursively on each of the current node's children.
-
-*/
 void calcForce(Body* b, Node* root, double theta) {
     if (root == nullptr) {
         return;
@@ -290,8 +266,8 @@ void calcForce(Body* b, Node* root, double theta) {
         // F = G*M0*M1*d / d^3
         // Projected forces: Fx = G*M0*M1*dx / d^3, Fy = G*M0*M1*dy / d^3
         double d3 = d * d * d;
-        b->fx += G * b->mass * root->b->mass * dx / d3;
-        b->fy += G * b->mass * root->b->mass * dy / d3;
+        b->fx += (G * b->mass * root->b->mass * dx) / d3;
+        b->fy += (G * b->mass * root->b->mass * dy) / d3;
 
         // double d2 = d * d;
         // double d3 = d2 * d;
@@ -316,8 +292,8 @@ void calcForce(Body* b, Node* root, double theta) {
             // F = G*M0*M1*d / d^3
             // Projected forces: Fx = G*M0*M1*dx / d^3, Fy = G*M0*M1*dy / d^3
             double d3 = d * d * d;
-            b->fx += G * b->mass * root->b->mass * dx / d3;
-            b->fy += G * b->mass * root->b->mass * dy / d3;
+            b->fx += (G * b->mass * root->b->mass * dx) / d3;
+            b->fy += (G * b->mass * root->b->mass * dy) / d3;
 
             // double d2 = d * d;
             // double d3 = d2 * d;
@@ -500,17 +476,23 @@ int main(int argc, char* argv[]) {
     Node* root = constructTree(bodies);
     
     // Print the tree structure for debugging (only from rank 0)
-    if (rank == 0) {
-        std::cout << "\nBarnes-Hut Tree Structure (BEFORE):" << std::endl;
-        printTree(root);
-        std::cout << std::endl;
-    }
+    // if (rank == 0) {
+    //     std::cout << "\nBarnes-Hut Tree Structure (BEFORE):" << std::endl;
+    //     printTree(root);
+    //     std::cout << std::endl;
+    // }
     MPI_Barrier(MPI_COMM_WORLD);
+
+    double start_time = MPI_Wtime();
+
 
     // Main simulation loop
     for (int step = 0; step < steps; step++) {
         // TODO: Calculate forces on each body
         // TODO: Update positions and velocities
+            // if (rank == 0) {
+            //   std::cout << "step: " << step << std::endl;  
+            // }
 
         // Calculate forces in parallel
         calculateForcesParallel(root, bodies, theta, rank, size);
@@ -525,18 +507,25 @@ int main(int argc, char* argv[]) {
         root = constructTree(bodies);
     }
     
-    if (rank == 0) {
-        std::cout << "\nBarnes-Hut Tree Structure (AFTER):" << std::endl;
-        printTree(root);
-        std::cout << std::endl;
-    }
+    double end_time = MPI_Wtime();
+
+    
+    // if (rank == 0) {
+    //     std::cout << "\nBarnes-Hut Tree Structure (AFTER):" << std::endl;
+    //     printTree(root);
+    //     std::cout << std::endl;
+    // }
 
     // Write final state to output file
     writeBodiestoFile(bodies, outputFile, rank);
 
     // Clean up
     destroyTree(root);
-    
+    if (rank == 0) {
+        std::cout << std::fixed << std::setprecision(6) << (end_time - start_time) << std::endl;
+    }
+
+
     MPI_Finalize();
     return 0;
 }
