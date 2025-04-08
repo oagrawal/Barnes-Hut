@@ -21,7 +21,7 @@ struct Body {
 };
 
 struct Node {
-    struct Body b;      // can represent internal / external nodes
+    struct Body* b;      // Pointer to body (can represent internal / external nodes)
     struct Node *NW, *NE, *SW, *SE;
     double minx, maxx, miny, maxy;
 };
@@ -30,6 +30,7 @@ struct Node {
 // Function prototypes
 std::vector<Body> readBodiesFromFile(const std::string& filename);
 Node* constructTreeHelper(Node* root, const Body& b, double minx, double maxx, double miny, double maxy);
+Node* constructTree(std::vector<Body>& bodies);
 
 // Parse command line arguments
 bool parseArguments(int argc, char* argv[], std::string& inputFile, std::string& outputFile, 
@@ -127,59 +128,59 @@ Node* constructTreeHelper(Node* root, const Body& b, double minx, double maxx, d
         root->maxx = maxx;
         root->miny = miny;
         root->maxy = maxy;
-        root->b = b;
+        root->b = new Body(b);
         return root;
     }
     
     // If this is an empty node, just put the body here
-    if(root->b.mass == 0) {
-        root->b = b;
+    if(root->b->mass == 0) {
+        *root->b = b;
     } 
     // If this is an external node (leaf with a single body)
     else if(root->NW == nullptr && root->NE == nullptr && 
             root->SW == nullptr && root->SE == nullptr) {
         // Store existing body
-        Body b2 = root->b;
+        Body b2 = *root->b;
         
         // Mark as internal node
-        root->b.index = -1;
+        root->b->index = -1;
         
         // Insert both bodies
         root = insertCorrect(root, b);
         root = insertCorrect(root, b2);
         
         // Update center of mass and total mass
-        double totalMass = root->b.mass + b.mass;
+        double totalMass = root->b->mass + b.mass;
         if (totalMass > 0) {  // Prevent division by zero
             // Use a more stable formula for weighted average to avoid overflow
-            double w1 = root->b.mass / totalMass;
+            double w1 = root->b->mass / totalMass;
             double w2 = b.mass / totalMass;
-            root->b.px = w1 * root->b.px + w2 * b.px;
-            root->b.py = w1 * root->b.py + w2 * b.py;
-            root->b.mass = totalMass;
+            root->b->px = w1 * root->b->px + w2 * b.px;
+            root->b->py = w1 * root->b->py + w2 * b.py;
+            root->b->mass = totalMass;
         } else {
             // If both masses are zero, just use the position of the new body
-            root->b.px = b.px;
-            root->b.py = b.py;
-            root->b.mass = 0;
+            root->b->px = b.px;
+            root->b->py = b.py;
+            root->b->mass = 0;
         }
     } 
     // If this is an internal node
     else {
         // Update center of mass and total mass
-        double totalMass = root->b.mass + b.mass;
+        double totalMass = root->b->mass + b.mass;
         if (totalMass > 0) {  // Prevent division by zero
             // Use a more stable formula for weighted average to avoid overflow
-            double w1 = root->b.mass / totalMass;
+            double w1 = root->b->mass / totalMass;
             double w2 = b.mass / totalMass;
-            root->b.px = w1 * root->b.px + w2 * b.px;
-            root->b.py = w1 * root->b.py + w2 * b.py;
-            root->b.mass = totalMass;
+            root->b->px = w1 * root->b->px + w2 * b.px;
+            root->b->py = w1 * root->b->py + w2 * b.py;
+            root->b->mass = totalMass;
         } else {
             // If both masses are zero, just use the position of the new body
-            root->b.px = b.px;
-            root->b.py = b.py;
-            root->b.mass = 0;
+            root->b->px = b.px;
+            root->b->py = b.py;
+            root->b->mass = 0;
         }
         
         // Insert the new body
@@ -188,7 +189,7 @@ Node* constructTreeHelper(Node* root, const Body& b, double minx, double maxx, d
     return root;
 }
 
-Node* constructTree(const std::vector<Body>& bodies) {
+Node* constructTree(std::vector<Body>& bodies) {
     Node* root = nullptr;
     
     for(size_t i = 0; i < bodies.size(); i++) {
@@ -205,6 +206,9 @@ void destroyTree(Node* root) {
     destroyTree(root->NE);
     destroyTree(root->SW);
     destroyTree(root->SE);
+    
+    // Free the body pointer
+    delete root->b;
     
     // Free this node
     delete root;
@@ -225,16 +229,16 @@ void printTree(Node* root, int level = 0, const std::string& prefix = "") {
         std::cout << "└── ";
     }
     
-    if (root->b.index == -1) {
-        std::cout << "Internal Node (mass=" << root->b.mass 
-                  << ", pos=(" << root->b.px << "," << root->b.py << ")"
+    if (root->b->index == -1) {
+        std::cout << "Internal Node (mass=" << root->b->mass 
+                  << ", pos=(" << root->b->px << "," << root->b->py << ")"
                   << ", bounds=[" << root->minx << "," << root->maxx << "][" 
                   << root->miny << "," << root->maxy << "])" << std::endl;
     } else {
-        std::cout << "Body " << root->b.index 
-                  << " (mass=" << root->b.mass 
-                  << ", pos=(" << root->b.px << "," << root->b.py << ")"
-                  << ", vel=(" << root->b.vx << "," << root->b.vy << "))" << std::endl;
+        std::cout << "Body " << root->b->index 
+                  << " (mass=" << root->b->mass 
+                  << ", pos=(" << root->b->px << "," << root->b->py << ")"
+                  << ", vel=(" << root->b->vx << "," << root->b->vy << "))" << std::endl;
     }
     
     // Print children with increased indentation
@@ -281,32 +285,34 @@ int main(int argc, char* argv[]) {
     
     // Read input file
     std::vector<Body> bodies;
+    bodies = readBodiesFromFile(inputFile);
     if (rank == 0) {
-        bodies = readBodiesFromFile(inputFile);
         std::cout << "Read " << bodies.size() << " bodies from " << inputFile << std::endl;
     }
+    MPI_Barrier(MPI_COMM_WORLD);
 
-    Node* root;
+    // Initialize the Barnes-Hut tree
+    Node* root = constructTree(bodies);
+    
     // Print the tree structure for debugging (only from rank 0)
     if (rank == 0) {
-        // Initialize the Barnes-Hut tree
-        root = constructTree(bodies);
         std::cout << "\nBarnes-Hut Tree Structure:" << std::endl;
         printTree(root);
         std::cout << std::endl;
     }
+    MPI_Barrier(MPI_COMM_WORLD);
 
-    for (int i = 0; i < steps; i++){
-        // main simulation loop
-        // For each new step, you would destroy the old tree and create a new one
-        // after the bodies have moved
+    // Main simulation loop
+    for (int step = 0; step < steps; step++) {
+        // TODO: Calculate forces on each body
+        // TODO: Update positions and velocities
         
-        // If you need to rebuild the tree each step:
-        // destroyTree(root);
-        // root = constructTree(bodies);
+        // Rebuild the tree for the next step
+        destroyTree(root);
+        root = constructTree(bodies);
     }
-
-    // Clean up by freeing all allocated memory
+    
+    // Clean up
     destroyTree(root);
     
     MPI_Finalize();
