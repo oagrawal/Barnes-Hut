@@ -28,12 +28,10 @@ struct Node {
 };
 
 
-// Function prototypes
 std::vector<Body> readBodiesFromFile(const std::string& filename);
 Node* constructTreeHelper(Node* root, const Body& b, double minx, double maxx, double miny, double maxy);
 Node* constructTree(std::vector<Body>& bodies);
 
-// Parse command line arguments
 bool parseArguments(int argc, char* argv[], std::string& inputFile, std::string& outputFile, 
                    int& steps, double& theta, double& dt, bool& visualization) {
     // Set default values
@@ -294,6 +292,15 @@ void calcForce(Body* b, Node* root, double theta) {
         double d3 = d * d * d;
         b->fx += G * b->mass * root->b->mass * dx / d3;
         b->fy += G * b->mass * root->b->mass * dy / d3;
+
+        // double d2 = d * d;
+        // double d3 = d2 * d;
+        // // Optional: Consider factoring out common terms
+        // double gm = G * b->mass * root->b->mass;
+        // b->fx += gm * dx / d3;
+        // b->fy += gm * dy / d3;
+
+        
         return;
     } else {
         // Internal node - check if it's far enough away
@@ -311,6 +318,14 @@ void calcForce(Body* b, Node* root, double theta) {
             double d3 = d * d * d;
             b->fx += G * b->mass * root->b->mass * dx / d3;
             b->fy += G * b->mass * root->b->mass * dy / d3;
+
+            // double d2 = d * d;
+            // double d3 = d2 * d;
+            // // Optional: Consider factoring out common terms
+            // double gm = G * b->mass * root->b->mass;
+            // b->fx += gm * dx / d3;
+            // b->fy += gm * dy / d3;
+
             return;
         } else {
             // Too close, recursively check children
@@ -424,6 +439,14 @@ void writeBodiestoFile(const std::vector<Body>& bodies, const std::string& outpu
                 << std::scientific << std::setprecision(6) << body.mass << "  "
                 << std::scientific << std::setprecision(6) << body.vx << "  "
                 << std::scientific << std::setprecision(6) << body.vy << std::endl;
+
+        // outFile << body.index << "  "
+        //         << body.px << "  "
+        //         << body.py << "  "
+        //         << body.mass << "  "
+        //         << body.vx << "  "
+        //         << body.vy << std::endl;
+
     }
     
     outFile.close();
@@ -519,7 +542,6 @@ int main(int argc, char* argv[]) {
 }
 
 
-// Read bodies from input file
 std::vector<Body> readBodiesFromFile(const std::string& filename) {
     std::vector<Body> bodies;
     std::ifstream file(filename);
