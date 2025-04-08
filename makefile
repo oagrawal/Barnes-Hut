@@ -1,20 +1,22 @@
 # Compiler and flags
-CXX = mpicxx
-CXXFLAGS = -std=c++11 -Wall -O3 -g
-LDFLAGS = 
+CXX = g++
+MSMPI_INC = "C:\Program Files (x86)\Microsoft SDKs\MPI\Include"
+MSMPI_LIB64 = "C:\Program Files (x86)\Microsoft SDKs\MPI\Lib\x64"
+CXXFLAGS = -O2 -std=c++11 -I$(MSMPI_INC)
+LDFLAGS = -L$(MSMPI_LIB64) -lmsmpi -lgdi32
 
 # Source files and target
 SRC = nbody.cpp
 HEADERS = 
 OBJ = $(SRC:.cpp=.o)
-TARGET = nbody
+TARGET = nbody.exe
 
 # Default target
 all: $(TARGET)
 
 # Linking
 $(TARGET): $(OBJ)
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+	$(CXX) -o $@ $^ $(LDFLAGS)
 
 # Compiling
 %.o: %.cpp $(HEADERS)
@@ -22,10 +24,10 @@ $(TARGET): $(OBJ)
 
 # Clean
 clean:
-	rm -f $(OBJ) $(TARGET) *~
+	del /F /Q $(OBJ) $(TARGET) *~
 
 # Run example (not called by default)
 run: $(TARGET)
-	mpirun -n 4 ./$(TARGET) -i input/nb-10.txt -o output/output.txt -s 100 -t 0.005 -d 0.01
+	mpiexec -n 4 .\$(TARGET) -i input\nb-10.txt -o output\output.txt -s 100 -t 0.005 -d 0.01 -V
 
 .PHONY: all clean run
