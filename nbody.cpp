@@ -427,7 +427,7 @@ int main(int argc, char* argv[]) {
     
     // Print the tree structure for debugging (only from rank 0)
     if (rank == 0) {
-        std::cout << "\nBarnes-Hut Tree Structure:" << std::endl;
+        std::cout << "\nBarnes-Hut Tree Structure (BEFORE):" << std::endl;
         printTree(root);
         std::cout << std::endl;
     }
@@ -451,6 +451,13 @@ int main(int argc, char* argv[]) {
         root = constructTree(bodies);
     }
     
+    if (rank == 0) {
+        std::cout << "\nBarnes-Hut Tree Structure (AFTER):" << std::endl;
+        printTree(root);
+        std::cout << std::endl;
+    }
+
+
     // Clean up
     destroyTree(root);
     
