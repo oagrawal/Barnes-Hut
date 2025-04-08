@@ -26,6 +26,6 @@ clean:
 
 # Run example (not called by default)
 run: $(TARGET)
-	mpirun -n 4 ./$(TARGET) -i input/nb-10.txt -o output.txt -s 100 -t 0.005 -d 0.01
+	mpirun -n 4 ./$(TARGET) -i input/nb-10.txt -o output/output.txt -s 100 -t 0.005 -d 0.01
 
 .PHONY: all clean run

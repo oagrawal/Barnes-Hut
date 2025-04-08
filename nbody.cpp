@@ -1,5 +1,6 @@
 #include <mpi.h>
 #include <iostream>
+#include <iomanip>  // For std::setprecision
 #include <fstream>
 #include <vector>
 #include <cmath>
@@ -384,6 +385,52 @@ void updateBodies(std::vector<Body>& bodies, double dt){
     }
 }
 
+void writeBodiestoFile(const std::vector<Body>& bodies, const std::string& outputFile, int rank) {
+    // Only rank 0 should write to the output file to avoid conflicts
+    if (rank != 0) {
+        return;
+    }
+    
+    // Open the output file
+    std::ofstream outFile(outputFile);
+    if (!outFile.is_open()) {
+        std::cerr << "Error: Could not open output file " << outputFile << std::endl;
+        return;
+    }
+    
+    // Count non-lost bodies
+    int validBodies = 0;
+    for (const auto& body : bodies) {
+        // if (body.mass != -1) {
+        //     validBodies++;
+        // }
+        validBodies++;
+    }
+    
+    // Write the number of bodies
+    outFile << validBodies << std::endl;
+    
+    // Write each body's data
+    for (const auto& body : bodies) {
+        // Skip lost particles
+        // if (body.mass == -1) {
+        //     continue;
+        // }
+        
+        // Write data with scientific notation and specific precision
+        outFile << body.index << "  "
+                << std::scientific << std::setprecision(6) << body.px << "  "
+                << std::scientific << std::setprecision(6) << body.py << "  "
+                << std::scientific << std::setprecision(6) << body.mass << "  "
+                << std::scientific << std::setprecision(6) << body.vx << "  "
+                << std::scientific << std::setprecision(6) << body.vy << std::endl;
+    }
+    
+    outFile.close();
+    std::cout << "Wrote " << validBodies << " bodies to " << outputFile << std::endl;
+}
+
+
 int main(int argc, char* argv[]) {
     // Initialize MPI environment
     MPI_Init(&argc, &argv);
@@ -461,6 +508,8 @@ int main(int argc, char* argv[]) {
         std::cout << std::endl;
     }
 
+    // Write final state to output file
+    writeBodiestoFile(bodies, outputFile, rank);
 
     // Clean up
     destroyTree(root);
