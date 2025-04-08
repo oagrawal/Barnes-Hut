@@ -1,0 +1,2 @@
+to check against sample output:
+- mpirun -n 4 ./nbody -i input/nb-10.txt -o output.txt -s 1000 -t 0.35 -d 0.005

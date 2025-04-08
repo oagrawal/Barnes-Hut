@@ -287,11 +287,12 @@ void calcForce(Body* b, Node* root, double theta) {
             d = RLIMIT;  // Prevent division by zero/very small numbers
         }
         
-        // Calculate gravitational force with correct direction
-        double F = G * b->mass * root->b->mass / (d*d + RLIMIT*RLIMIT);
-        
-        b->fx += F * dx / d;
-        b->fy += F * dy / d;
+        // Calculate gravitational force using the new formula
+        // F = G*M0*M1*d / d^3
+        // Projected forces: Fx = G*M0*M1*dx / d^3, Fy = G*M0*M1*dy / d^3
+        double d3 = d * d * d;
+        b->fx += G * b->mass * root->b->mass * dx / d3;
+        b->fy += G * b->mass * root->b->mass * dy / d3;
         return;
     } else {
         // Internal node - check if it's far enough away
@@ -303,9 +304,12 @@ void calcForce(Body* b, Node* root, double theta) {
                 d = RLIMIT;
             }
             
-            double F = G * b->mass * root->b->mass / (d*d + RLIMIT*RLIMIT);
-            b->fx += F * dx / d;
-            b->fy += F * dy / d;
+            // Calculate gravitational force using the new formula
+            // F = G*M0*M1*d / d^3
+            // Projected forces: Fx = G*M0*M1*dx / d^3, Fy = G*M0*M1*dy / d^3
+            double d3 = d * d * d;
+            b->fx += G * b->mass * root->b->mass * dx / d3;
+            b->fy += G * b->mass * root->b->mass * dy / d3;
             return;
         } else {
             // Too close, recursively check children
