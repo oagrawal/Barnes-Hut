@@ -356,7 +356,6 @@ void writeBodiestoFile(const std::vector<Body>& bodies, const std::string& outpu
                 << std::scientific << std::setprecision(6) << body.mass << "  "
                 << std::scientific << std::setprecision(6) << body.vx << "  "
                 << std::scientific << std::setprecision(6) << body.vy << std::endl;
-
     }
     
     outFile.close();
