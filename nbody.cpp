@@ -6,6 +6,7 @@
 #include <cmath>
 #include <string>
 #include <getopt.h>
+#include <chrono>
 
 // Constants for the simulation
 const double G = 0.0001;  // Gravitational constant
@@ -33,7 +34,7 @@ Node* constructTreeHelper(Node* root, const Body& b, double minx, double maxx, d
 Node* constructTree(std::vector<Body>& bodies);
 
 bool parseArguments(int argc, char* argv[], std::string& inputFile, std::string& outputFile, 
-                   int& steps, double& theta, double& dt, bool& visualization) {
+                   int& steps, double& theta, double& dt, bool& visualization, bool& sequential) {
     // Set default values
     inputFile = "input/nb-10.txt";
     outputFile = "output.txt";
@@ -41,8 +42,9 @@ bool parseArguments(int argc, char* argv[], std::string& inputFile, std::string&
     theta = 0.5;  // Common default for Barnes-Hut
     dt = 0.005;
     visualization = false;
+    sequential = false;
     int opt;
-    while ((opt = getopt(argc, argv, "i:o:s:t:d:V")) != -1) {
+    while ((opt = getopt(argc, argv, "i:o:s:t:d:VS")) != -1) {
         switch (opt) {
             case 'i':
                 inputFile = optarg;
@@ -61,6 +63,9 @@ bool parseArguments(int argc, char* argv[], std::string& inputFile, std::string&
                 break;
             case 'V':
                 visualization = true;
+                break;
+            case 'S':
+                sequential = true;
                 break;
             default:
                 return false;
@@ -352,6 +357,24 @@ void calculateForcesParallel(Node* root, std::vector<Body>& bodies, double theta
     }
 }
 
+void calculateForcesSeq(Node* root, std::vector<Body>& bodies, double theta) {
+    // Reset forces for all bodies
+    for (auto& body : bodies) {
+        body.fx = 0.0;
+        body.fy = 0.0;
+    }
+    
+    // Each rank calculates forces for its assigned subset of bodies (round-robin)
+    for (size_t i = 0; i < bodies.size(); i += 1) {
+        // Skip lost particles
+        if (bodies[i].mass == -1) {
+            continue;
+        }
+        calcForce(&bodies[i], root, theta);
+    }
+    
+}
+
 
 void updateBodies(std::vector<Body>& bodies, double dt){
     double ax, ay;
@@ -426,50 +449,58 @@ void writeBodiestoFile(const std::vector<Body>& bodies, const std::string& outpu
     }
     
     outFile.close();
-    std::cout << "Wrote " << validBodies << " bodies to " << outputFile << std::endl;
+    // std::cout << "Wrote " << validBodies << " bodies to " << outputFile << std::endl;
 }
 
 
-int main(int argc, char* argv[]) {
-    // Initialize MPI environment
+std::vector<Body> readBodiesFromFile(const std::string& filename) {
+    std::vector<Body> bodies;
+    std::ifstream file(filename);
+    
+    if (!file.is_open()) {
+        std::cerr << "Error: Could not open file " << filename << std::endl;
+        return bodies;
+    }
+    
+    // Read number of bodies
+    int numBodies;
+    file >> numBodies;
+    
+    // Reserve space to avoid reallocations
+    bodies.reserve(numBodies);
+    
+    // Read each body
+    for (int i = 0; i < numBodies; i++) {
+        Body body;
+        file >> body.index >> body.px >> body.py >> body.mass >> body.vx >> body.vy;
+        
+        // Initialize forces to zero
+        body.fx = 0.0;
+        body.fy = 0.0;
+        
+        bodies.push_back(body);
+    }
+    
+    file.close();
+    return bodies;
+}
+
+
+int parallel_imp(int argc, char* argv[], std::string& inputFile, std::string& outputFile, 
+                   int& steps, double& theta, double& dt, bool& visualization, bool& sequential){
+
     MPI_Init(&argc, &argv);
     
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
-    
-    // Parse command line arguments
-    std::string inputFile, outputFile;
-    int steps;
-    double theta, dt;
-    bool visualization;
-    
-    if (!parseArguments(argc, argv, inputFile, outputFile, steps, theta, dt, visualization)) {
-        if (rank == 0) {
-            std::cerr << "Usage: " << argv[0] << " -i <input_file> -o <output_file> "
-                      << "-s <steps> -t <theta> -d <dt> [-V]" << std::endl;
-        }
-        MPI_Finalize();
-        return 1;
-    }
-    
-    // Print parameters (only from rank 0)
-    if (rank == 0) {
-        std::cout << "Parameters:" << std::endl;
-        std::cout << "  Input file: " << inputFile << std::endl;
-        std::cout << "  Output file: " << outputFile << std::endl;
-        std::cout << "  Steps: " << steps << std::endl;
-        std::cout << "  Theta: " << theta << std::endl;
-        std::cout << "  Timestep: " << dt << std::endl;
-        std::cout << "  Visualization: " << (visualization ? "On" : "Off") << std::endl;
-    }
-    
+
     // Read input file
     std::vector<Body> bodies;
     bodies = readBodiesFromFile(inputFile);
-    if (rank == 0) {
-        std::cout << "Read " << bodies.size() << " bodies from " << inputFile << std::endl;
-    }
+    // if (rank == 0) {
+    //     std::cout << "Read " << bodies.size() << " bodies from " << inputFile << std::endl;
+    // }
     MPI_Barrier(MPI_COMM_WORLD);
 
     // Initialize the Barnes-Hut tree
@@ -528,38 +559,105 @@ int main(int argc, char* argv[]) {
 
     MPI_Finalize();
     return 0;
+
 }
 
 
-std::vector<Body> readBodiesFromFile(const std::string& filename) {
+int sequential_imp(int argc, char* argv[], std::string& inputFile, std::string& outputFile, 
+                   int& steps, double& theta, double& dt, bool& visualization, bool& sequential){
+
+
+    // Read input file
     std::vector<Body> bodies;
-    std::ifstream file(filename);
+    bodies = readBodiesFromFile(inputFile);
+    // if (rank == 0) {
+    //     std::cout << "Read " << bodies.size() << " bodies from " << inputFile << std::endl;
+    // }
+
+    // Initialize the Barnes-Hut tree
+    Node* root = constructTree(bodies);
     
-    if (!file.is_open()) {
-        std::cerr << "Error: Could not open file " << filename << std::endl;
-        return bodies;
+    // Print the tree structure for debugging (only from rank 0)
+    // if (rank == 0) {
+    //     std::cout << "\nBarnes-Hut Tree Structure (BEFORE):" << std::endl;
+    //     printTree(root);
+    //     std::cout << std::endl;
+    // }
+
+    // Use standard C++ timing instead of MPI_Wtime
+    auto start_time = std::chrono::high_resolution_clock::now();
+
+    // Main simulation loop
+    for (int step = 0; step < steps; step++) {
+        // TODO: Calculate forces on each body
+        // TODO: Update positions and velocities
+            // if (rank == 0) {
+            //   std::cout << "step: " << step << std::endl;  
+            // }
+
+        // Calculate forces in parallel
+        calculateForcesSeq(root, bodies, theta);
+        // Update positions and velocities
+        updateBodies(bodies, dt);
+
+        
+        destroyTree(root);
+        root = constructTree(bodies);
     }
     
-    // Read number of bodies
-    int numBodies;
-    file >> numBodies;
+    auto end_time = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed_seconds = end_time - start_time;
     
-    // Reserve space to avoid reallocations
-    bodies.reserve(numBodies);
+    // if (rank == 0) {
+    //     std::cout << "\nBarnes-Hut Tree Structure (AFTER):" << std::endl;
+    //     printTree(root);
+    //     std::cout << std::endl;
+    // }
+
+    // Write final state to output file - use rank 0 for sequential version
+    writeBodiestoFile(bodies, outputFile, 0);
+
+    // Clean up
+    destroyTree(root);
+    std::cout << std::fixed << std::setprecision(6) << elapsed_seconds.count() << std::endl;
+
+    return 0;
+}
+
+int main(int argc, char* argv[]) {
+    // Initialize MPI environment
     
-    // Read each body
-    for (int i = 0; i < numBodies; i++) {
-        Body body;
-        file >> body.index >> body.px >> body.py >> body.mass >> body.vx >> body.vy;
-        
-        // Initialize forces to zero
-        body.fx = 0.0;
-        body.fy = 0.0;
-        
-        bodies.push_back(body);
+    // Parse command line arguments
+    std::string inputFile, outputFile;
+    int steps;
+    double theta, dt;
+    bool visualization;
+    bool sequential;
+    
+    if (!parseArguments(argc, argv, inputFile, outputFile, steps, theta, dt, visualization, sequential)) {
+        std::cerr << "Usage: " << argv[0] << " -i <input_file> -o <output_file> "
+                    << "-s <steps> -t <theta> -d <dt> [-V] [-S]" << std::endl;
+        return 1;
     }
     
-    file.close();
-    return bodies;
+    // Print parameters (only from rank 0)
+    /*
+    if (rank == 0) {
+        std::cout << "Parameters:" << std::endl;
+        std::cout << "  Input file: " << inputFile << std::endl;
+        std::cout << "  Output file: " << outputFile << std::endl;
+        std::cout << "  Steps: " << steps << std::endl;
+        std::cout << "  Theta: " << theta << std::endl;
+        std::cout << "  Timestep: " << dt << std::endl;
+        std::cout << "  Visualization: " << (visualization ? "On" : "Off") << std::endl;
+    }*/
+
+    if (!sequential){
+        return parallel_imp(argc, argv, inputFile, outputFile, steps, theta, dt, visualization, sequential);
+    }else{
+        // std::cout << "sequential implementation" << std::endl;
+        return sequential_imp(argc, argv, inputFile, outputFile, steps, theta, dt, visualization, sequential);
+    }
+    
 }
 

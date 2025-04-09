@@ -1,2 +1,10 @@
 to check against sample output:
-- mpirun -n 4 ./nbody -i input/nb-10.txt -o output.txt -s 1000 -t 0.35 -d 0.005
+
+parallel implenentation:
+
+HWLOC_COMPONENTS=-gl mpirun -n 30 --oversubscribe ./nbody -i input/nb-100.txt -o output/output.txt -s 1000 -t 0.35 -d 0.005
+
+
+sequential:
+
+HWLOC_COMPONENTS=-gl mpirun -n 1 --oversubscribe ./nbody -i input/nb-100.txt -o output/output.txt -s 1000 -t 0.35 -d 0.005 -S
