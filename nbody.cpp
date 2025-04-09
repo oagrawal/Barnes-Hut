@@ -228,7 +228,8 @@ void calcForce(Body* b, Node* root, double theta) {
     
     double dx = root->b->px - b->px;
     double dy = root->b->py - b->py;
-    double d = sqrt(dx*dx + dy*dy);
+    double d_squared = dx*dx + dy*dy;
+    double d = sqrt(d_squared); // Still need d for force calculations
     
     if (root->b->index != -1) {
         if (d < RLIMIT) {
@@ -242,7 +243,7 @@ void calcForce(Body* b, Node* root, double theta) {
     } else {
         double s = root->maxx - root->minx;  
         
-        if ((s / d) < theta) {
+        if ((s*s) < (theta*theta * d_squared)) {
             if (d < RLIMIT) {
                 d = RLIMIT;
             }
@@ -310,6 +311,8 @@ void calculateForcesSeq(Node* root, std::vector<Body>& bodies, double theta) {
 
 void updateBodies(std::vector<Body>& bodies, double dt){
     double ax, ay;
+    double half_dt_squared = 0.5 * dt * dt;
+    
     for (auto& body : bodies) {
         if (body.mass == 0 || body.mass == -1) {
             continue;
@@ -318,8 +321,8 @@ void updateBodies(std::vector<Body>& bodies, double dt){
         ay = body.fy / body.mass;  
         body.vx = body.vx + ax*dt;
         body.vy = body.vy + ay*dt;
-        body.px = body.px + body.vx*dt + 0.5*ax*(dt*dt);
-        body.py = body.py + body.vy*dt + 0.5*ay*(dt*dt);
+        body.px = body.px + body.vx*dt + ax*half_dt_squared;
+        body.py = body.py + body.vy*dt + ay*half_dt_squared;
         
         if (body.px < DOMAIN_MIN || body.px > DOMAIN_MAX || 
             body.py < DOMAIN_MIN || body.py > DOMAIN_MAX) {
@@ -413,8 +416,6 @@ int parallel_imp(int argc, char* argv[], std::string& inputFile, std::string& ou
         calculateForcesParallel(root, bodies, theta, rank, size);
 
         updateBodies(bodies, dt);
-
-        MPI_Barrier(MPI_COMM_WORLD);
         
         destroyTree(root);
         root = constructTree(bodies);
