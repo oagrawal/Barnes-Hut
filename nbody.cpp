@@ -414,9 +414,7 @@ int parallel_imp(int argc, char* argv[], std::string& inputFile, std::string& ou
 
     for (int step = 0; step < steps; step++) {
         calculateForcesParallel(root, bodies, theta, rank, size);
-
         updateBodies(bodies, dt);
-        
         destroyTree(root);
         root = constructTree(bodies);
     }
@@ -442,40 +440,14 @@ int sequential_imp(int argc, char* argv[], std::string& inputFile, std::string& 
                    int& steps, double& theta, double& dt, bool& visualization, bool& sequential){
 
 
-    // Read input file
     std::vector<Body> bodies;
     bodies = readBodiesFromFile(inputFile);
-    // if (rank == 0) {
-    //     std::cout << "Read " << bodies.size() << " bodies from " << inputFile << std::endl;
-    // }
-
-    // Initialize the Barnes-Hut tree
     Node* root = constructTree(bodies);
-    
-    // Print the tree structure for debugging (only from rank 0)
-    // if (rank == 0) {
-    //     std::cout << "\nBarnes-Hut Tree Structure (BEFORE):" << std::endl;
-    //     printTree(root);
-    //     std::cout << std::endl;
-    // }
-
-    // Use standard C++ timing instead of MPI_Wtime
     auto start_time = std::chrono::high_resolution_clock::now();
-
-    // Main simulation loop
     for (int step = 0; step < steps; step++) {
-        // TODO: Calculate forces on each body
-        // TODO: Update positions and velocities
-            // if (rank == 0) {
-            //   std::cout << "step: " << step << std::endl;  
-            // }
-
-        // Calculate forces in parallel
         calculateForcesSeq(root, bodies, theta);
-        // Update positions and velocities
         updateBodies(bodies, dt);
 
-        
         destroyTree(root);
         root = constructTree(bodies);
     }
@@ -483,16 +455,8 @@ int sequential_imp(int argc, char* argv[], std::string& inputFile, std::string& 
     auto end_time = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed_seconds = end_time - start_time;
     
-    // if (rank == 0) {
-    //     std::cout << "\nBarnes-Hut Tree Structure (AFTER):" << std::endl;
-    //     printTree(root);
-    //     std::cout << std::endl;
-    // }
-
-    // Write final state to output file - use rank 0 for sequential version
     writeBodiestoFile(bodies, outputFile, 0);
 
-    // Clean up
     destroyTree(root);
     std::cout << std::fixed << std::setprecision(6) << elapsed_seconds.count() << std::endl;
 
