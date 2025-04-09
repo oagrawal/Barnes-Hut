@@ -519,21 +519,12 @@ int parallel_imp(int argc, char* argv[], std::string& inputFile, std::string& ou
 
     // Main simulation loop
     for (int step = 0; step < steps; step++) {
-        // TODO: Calculate forces on each body
-        // TODO: Update positions and velocities
-            // if (rank == 0) {
-            //   std::cout << "step: " << step << std::endl;  
-            // }
-
-        // Calculate forces in parallel
         calculateForcesParallel(root, bodies, theta, rank, size);
-        
-        // Update positions and velocities
+
         updateBodies(bodies, dt);
 
-        
-        // Rebuild the tree for the next step
         MPI_Barrier(MPI_COMM_WORLD);
+        
         destroyTree(root);
         root = constructTree(bodies);
     }

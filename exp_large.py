@@ -89,7 +89,7 @@ def main():
     ensure_output_directory()
     
     test_case = "input/nb-100000.txt"
-    worker_counts = [8]  # Just one worker count for now
+    worker_counts = [1, 4, 8, 12, 20, 100]  # Just one worker count for now
     
     results = {
         "sequential": None,
