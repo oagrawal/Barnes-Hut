@@ -336,9 +336,17 @@ void writeBodiestoFile(const std::vector<Body>& bodies, const std::string& outpu
         return;
     }
     
+    // Create directories if they don't exist using Python
+    size_t pos = outputFile.find_last_of("/\\");
+    if (pos != std::string::npos) {
+        std::string dirPath = outputFile.substr(0, pos);
+        std::string pythonCmd = "python3 -c \"import os; os.makedirs('" + dirPath + "', exist_ok=True)\"";
+        system(pythonCmd.c_str());
+    }
+    
     std::ofstream outFile(outputFile);
     if (!outFile.is_open()) {
-        std::cerr << "Error: Could not open output file " << outputFile << std::endl;
+        std::cerr << "Error: Could not open or create output file " << outputFile << std::endl;
         return;
     }
     
